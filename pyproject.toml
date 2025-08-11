@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "multimodal-project"
+version = "0.1.0"
+authors = [
+  { name = "Marco", email = "" },
+]
+description = "Clasificación multimodal (heatmaps + tabular) con PyTorch"
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.10"
+dependencies = [
+  "torch",
+  "torchvision",
+  "numpy",
+  "pandas",
+  "scikit-learn",
+  "pyyaml",
+  "opencv-python",
+  "matplotlib",
+  "tensorboard",
+  "pillow",
+]
+
+[project.optional-dependencies]
+full = ["shap", "optuna", "rich"]

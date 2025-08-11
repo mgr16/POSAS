@@ -1,0 +1,25 @@
+{
+  "numeric": [
+    "Min",
+    "Edad",
+    "PJ",
+    "Titular",
+    "90 s",
+    "Gls",
+    "Ass",
+    "xG",
+    "npxG",
+    "xAG",
+    "npxG+xAG",
+    "PrgC",
+    "PrgP",
+    "PrgR"
+  ],
+  "categorical": [
+    "Posicion"
+  ],
+  "drop": [
+    "Gls_total"
+  ],
+  "target": "Target"
+}

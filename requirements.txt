@@ -1,0 +1,14 @@
+torch
+torchvision
+numpy
+pandas
+scikit-learn
+pyyaml
+opencv-python
+matplotlib
+tensorboard
+pillow
+# optional
+shap
+optuna
+rich
