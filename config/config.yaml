@@ -1,0 +1,52 @@
+seed: 42
+n_splits: 5
+use_group_kfold: false
+pos_weight: 1.0
+
+paths:
+  csv: 'data/processed/datos_para_cnn_etiquetas - datos_para_cnn.csv.csv'
+  heatmaps_dir: data/processed/heat_maps
+  artifacts_dir: models
+  reports_dir: reports
+
+image:
+  size: 64
+  normalize: true
+  augment:
+    shift_pixels: 1
+    gaussian_blur_sigma: 0.5
+
+training:
+  device: mps
+  batch_size: 64
+  epochs: 60
+  lr: 0.001
+  weight_decay: 0.0001
+  dropout: 0.2
+  clip_grad_norm: 1.0
+  scheduler: onecycle  # ['onecycle', 'reduce_on_plateau', 'none']
+  amp: false           # AMP solo en CUDA
+  compile: false
+
+features:
+  numeric:
+    - Min
+    - Edad
+    - PJ
+    - Titular
+    - "90 s"
+    - Gls
+    - Ass
+    - xG
+    - npxG
+    - xAG
+    - npxG+xAG
+    - PrgC
+    - PrgP
+    - PrgR
+  categorical:
+    - Posicion
+  drop:
+    - Gls_total
+
+threshold: 0.5
