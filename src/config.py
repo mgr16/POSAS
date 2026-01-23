@@ -23,10 +23,18 @@ class TrainingCfg:
     lr: float = 1e-3
     weight_decay: float = 1e-4
     dropout: float = 0.2
+    label_smoothing: float = 0.0
+    backbone: str = "resnet18"
     clip_grad_norm: float = 1.0
     scheduler: str = "onecycle"
     amp: bool = True
     compile: bool = True
+
+@dataclass
+class LossCfg:
+    type: str = "bce"
+    gamma: float = 2.0
+    alpha: float = 0.25
 
 @dataclass
 class FeaturesCfg:
@@ -43,6 +51,7 @@ class Config:
     paths: Paths
     image: ImageCfg
     training: TrainingCfg
+    loss: LossCfg
     features: FeaturesCfg
     threshold: float = 0.5
 
@@ -58,6 +67,7 @@ class Config:
             paths=Paths(**raw["paths"]),
             image=ImageCfg(**raw["image"]),
             training=TrainingCfg(**raw["training"]),
+            loss=LossCfg(**raw.get("loss", {})),
             features=FeaturesCfg(**raw["features"]),
             threshold=float(raw.get("threshold", 0.5)),
         )
