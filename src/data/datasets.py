@@ -15,6 +15,8 @@ class MultimodalDataset(Dataset):
             normalize=cfg_image.get('normalize', True),
             shift_pixels=cfg_image.get('augment', {}).get('shift_pixels', 0),
             gaussian_blur_sigma=cfg_image.get('augment', {}).get('gaussian_blur_sigma', 0.0),
+            random_affine_degrees=cfg_image.get('augment', {}).get('random_affine_degrees', 0.0),
+            coarse_dropout_prob=cfg_image.get('augment', {}).get('coarse_dropout_prob', 0.0),
             mean=cfg_image.get('mean', None),
             std=cfg_image.get('std', None),
         )

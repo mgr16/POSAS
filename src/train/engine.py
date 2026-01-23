@@ -1,4 +1,5 @@
 import torch
+import numpy as np
 from typing import Dict, Any, Tuple
 try:
     from torch.cuda.amp import autocast, GradScaler  # CUDA
@@ -22,7 +23,8 @@ class Engine:
                  loss_fn: torch.nn.Module,
                  device: str = "cpu",
                  amp: bool = True,
-                 clip_grad_norm: float = 1.0):
+                 clip_grad_norm: float = 1.0,
+                 mixup_alpha: float = 0.0):
         self.model = model.to(device)
         self.optim = optimizer
         self.loss_fn = loss_fn
@@ -30,6 +32,7 @@ class Engine:
         self.amp = (amp and has_cuda_amp and device == "cuda")
         self.scaler = GradScaler(enabled=self.amp)
         self.clip = clip_grad_norm
+        self.mixup_alpha = mixup_alpha
 
     # -------------------------
     # Helpers
@@ -83,6 +86,14 @@ class Engine:
         tab = batch["tab"].to(self.device, non_blocking=True).float()
         cats_dict = self._build_cats_dict(batch.get("cats", None))
         y = batch["y"].to(self.device).float()
+
+        if train and self.mixup_alpha and self.mixup_alpha > 0:
+            lam = np.random.beta(self.mixup_alpha, self.mixup_alpha)
+            perm = torch.randperm(img.size(0), device=img.device)
+            img = lam * img + (1 - lam) * img[perm]
+            tab = lam * tab + (1 - lam) * tab[perm]
+            y = lam * y + (1 - lam) * y[perm]
+            # Categorías: mantiene las originales para evitar interpolaciones inválidas
 
         with autocast(enabled=self.amp):
             logits = self.model(img, tab, cats_dict)

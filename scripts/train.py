@@ -16,7 +16,8 @@ from src.data.datasets import MultimodalDataset
 from src.models.fusion import FusionModel
 from src.train.engine import Engine
 from src.train.metrics import all_classification_metrics
-from src.train.callbacks import EarlyStopping
+from src.train.losses import FocalLoss
+from src.train.trainer import Trainer, TrainerConfig
 
 
 def _resolve_device(device_str: str):
@@ -87,6 +88,7 @@ def main():
         df_va_num, _         = tab.transform(df_va)
         if not emb_cards:
             emb_cards = {k: len(v) for k, v in tab.cat_maps.items()}
+        numeric_features = tab.numeric
 
         df_tr_all = df_tr.join(df_tr_num, rsuffix="_num")
         df_va_all = df_va.join(df_va_num, rsuffix="_num")
@@ -97,7 +99,7 @@ def main():
         tab.save(os.path.join(fold_dir, "scaler.pkl"),
                  os.path.join(fold_dir, "cat_maps.json"))
         with open(os.path.join(fold_dir, "features.json"), "w") as f:
-            json.dump({"numeric": cfg.features.numeric,
+            json.dump({"numeric": numeric_features,
                        "categorical": cfg.features.categorical,
                        "drop": getattr(cfg.features, "drop", []),
                        "target": target_col}, f, indent=2)
@@ -111,9 +113,9 @@ def main():
 
         cat_idx_cols = [c + "__idx" for c in cfg.features.categorical]
         ds_tr = MultimodalDataset(df_tr_all, cfg_image=cfg_image, heatmaps_dir=cfg.paths.heatmaps_dir,
-                                  features_num=cfg.features.numeric, cat_idx_cols=cat_idx_cols, target_col=target_col)
+                                  features_num=numeric_features, cat_idx_cols=cat_idx_cols, target_col=target_col)
         ds_va = MultimodalDataset(df_va_all, cfg_image=cfg_image, heatmaps_dir=cfg.paths.heatmaps_dir,
-                                  features_num=cfg.features.numeric, cat_idx_cols=cat_idx_cols, target_col=target_col)
+                                  features_num=numeric_features, cat_idx_cols=cat_idx_cols, target_col=target_col)
 
         is_mps = (device == "mps")
         g = torch.Generator()
@@ -130,9 +132,10 @@ def main():
                            persistent_workers=False if is_mps else True)
 
         # ---- Modelo, optimizador, pérdida ----
-        model = FusionModel(num_features=len(cfg.features.numeric),
+        model = FusionModel(num_features=len(numeric_features),
                             emb_cardinalities=emb_cards,
-                            dropout=cfg.training.dropout)
+                            dropout=cfg.training.dropout,
+                            backbone=getattr(cfg.training, "backbone", "resnet18"))
         if getattr(cfg.training, "compile", False) and hasattr(torch, "compile") and device == "cuda":
             model = torch.compile(model)
         model = model.to(device)
@@ -156,37 +159,40 @@ def main():
         neg = int((df_tr[target_col] == 0).sum())
         pw  = neg / max(pos, 1)
         pos_weight = torch.tensor([pw], device=device)
-        loss_fn = torch.nn.BCEWithLogitsLoss(pos_weight=pos_weight)
+        loss_type = getattr(cfg, "loss", None).type if getattr(cfg, "loss", None) else "bce"
+        if loss_type == "focal_loss":
+            loss_fn = FocalLoss(
+                gamma=getattr(cfg.loss, "gamma", 2.0),
+                alpha=getattr(cfg.loss, "alpha", 0.25),
+                label_smoothing=getattr(cfg.training, "label_smoothing", 0.0),
+            )
+        else:
+            loss_fn = torch.nn.BCEWithLogitsLoss(pos_weight=pos_weight)
 
         use_amp = (cfg.training.amp and device == "cuda")
-        engine = Engine(model, optim, loss_fn, device=device, amp=use_amp, clip_grad_norm=cfg.training.clip_grad_norm)
+        mixup_alpha = cfg.image.augment.get("mixup_alpha", 0.0)
+        trainer = Trainer(
+            model=model,
+            optimizer=optim,
+            loss_fn=loss_fn,
+            cfg=TrainerConfig(
+                epochs=cfg.training.epochs,
+                device=device,
+                amp=use_amp,
+                clip_grad_norm=cfg.training.clip_grad_norm,
+                mixup_alpha=mixup_alpha,
+                early_stopping_patience=10,
+                log_dir=os.path.join(fold_dir, "tensorboard"),
+                use_wandb=bool(os.environ.get("WANDB_PROJECT")),
+                use_mlflow=bool(os.environ.get("MLFLOW_TRACKING_URI")),
+            ),
+            scheduler=scheduler,
+            run_name=f"fold_{fold}",
+        )
 
-        # ---- Entrenamiento con EarlyStopping opcional ----
-        es = EarlyStopping(patience=10, mode="max")
-        best_f1, best_state = -1.0, None
-
-        for epoch in range(cfg.training.epochs):
-            tr_loss, _, _ = engine.run_epoch(dl_tr, train=True, scheduler=scheduler)
-
-            engine.model.eval()
-            _, probs, ys = engine.run_epoch(dl_va, train=False)
-            metrics = all_classification_metrics(ys, probs, threshold=cfg.threshold)
-
-            # ReduceLROnPlateau step por época (usa métrica de validación)
-            if isinstance(scheduler, torch.optim.lr_scheduler.ReduceLROnPlateau):
-                scheduler.step(metrics["f1"])
-
-            if metrics['f1'] > best_f1:
-                best_f1 = metrics['f1']
-                best_state = {k: v.detach().cpu() for k, v in model.state_dict().items()}
-
-            print(f"[fold {fold}] epoch {epoch:03d} | loss {tr_loss:.4f} | f1 {metrics['f1']:.4f} | roc {metrics['roc_auc']:.4f}")
-
-            if not es.step(metrics['f1']):
-                if es.should_stop():
-                    print(f"[fold {fold}] Early stopping.")
-                    break
-
+        # ---- Entrenamiento con EarlyStopping ----
+        result = trainer.fit(dl_tr, dl_va)
+        best_state = result.get("best_state")
         if best_state is None:
             best_state = {k: v.detach().cpu() for k, v in model.state_dict().items()}
         torch.save(best_state, os.path.join(fold_dir, 'best_model.pth'))
@@ -194,6 +200,7 @@ def main():
         # Reconstruye probs de validación con mejor estado (para OOF)
         model.load_state_dict(best_state)
         model.eval()
+        engine = Engine(model, optim, loss_fn, device=device, amp=use_amp, clip_grad_norm=cfg.training.clip_grad_norm)
         _, probs_va, ys_va = engine.run_epoch(dl_va, train=False)
         df_oof = pd.DataFrame({
             "index": df_va_all.index.values,
@@ -213,7 +220,8 @@ def main():
         with open(os.path.join(fold_dir, "threshold.txt"), "w") as f:
             f.write(str(best_t))
 
-        fold_metrics.append((fold, float(best_f1)))
+        metrics = all_classification_metrics(ys_va, probs_va, threshold=cfg.threshold)
+        fold_metrics.append((fold, float(metrics["f1"])))
 
     # Guardar OOF al final
     if oof_rows:

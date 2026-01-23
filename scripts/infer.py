@@ -9,6 +9,7 @@ import torch
 
 from src.config import Config
 from src.data.datasets import MultimodalDataset
+from src.data.tabular import TabularPreprocessor
 from src.models.fusion import FusionModel
 
 def _resolve_device(device_str: str):
@@ -94,6 +95,8 @@ def main():
         scaler = _load_scaler(fold_dir)
 
         df_fold = df.copy()
+        tab = TabularPreprocessor(cfg.features.numeric, cfg.features.categorical)
+        df_fold = tab.engineer_features(df_fold)
         needed = list(features["numeric"]) + list(features["categorical"]) + ["heatmap_filename"]
         _check_columns(df_fold, needed, f"CSV para {fold_dir}")
 
@@ -129,7 +132,8 @@ def main():
         emb_cards = {k: len(v) for k, v in cat_maps.items()}
         model = FusionModel(num_features=len(features["numeric"]),
                             emb_cardinalities=emb_cards,
-                            dropout=0.0).to(device)
+                            dropout=0.0,
+                            backbone=getattr(cfg.training, "backbone", "resnet18")).to(device)
         weights_path = _require(os.path.join(fold_dir, "best_model.pth"), "best_model.pth")
         state = torch.load(weights_path, map_location=device)
         model.load_state_dict(state, strict=True)
