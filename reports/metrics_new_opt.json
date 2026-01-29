@@ -1,0 +1,21 @@
+{
+  "accuracy": 0.42142857142857143,
+  "precision": 0.42142857142857143,
+  "recall": 1.0,
+  "f1": 0.592964824120603,
+  "roc_auc": 0.2835321196903118,
+  "pr_auc": 0.3088769844822582,
+  "confusion_matrix": [
+    [
+      0,
+      81
+    ],
+    [
+      0,
+      59
+    ]
+  ],
+  "n": 140,
+  "threshold_used": 0.05,
+  "optimization": "global_F1_on_preds.csv"
+}
