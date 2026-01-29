@@ -13,7 +13,9 @@
     "npxG+xAG",
     "PrgC",
     "PrgP",
-    "PrgR"
+    "PrgR",
+    "Gls_xG_ratio",
+    "PrgP_PrgC_ratio"
   ],
   "categorical": [
     "Posicion"
